@@ -38,6 +38,66 @@ def project_to_feasible_set(z, y, C, n_cycles=10):
         alpha = project_to_box(alpha, C)
     return alpha
 
+def projected_gradient_svm(Q, y, C, eta, tol=1e-6, max_iter=5000, proj_cycles=10):
+    m = len(y)
+    alpha = np.zeros(m)
+    history = {
+        "objective": [],
+        "step_norm": [],
+        "feas_eq": [],
+        "feas_box": []
+    }
+
+    for k in range(max_iter):
+        grad = dual_gradient(alpha, Q)
+
+        # Gradient step
+        z = alpha - eta * grad
+
+        # Projection
+        alpha_new = project_to_feasible_set(z, y, C, n_cycles=proj_cycles)
+
+        # Diagnostics
+        obj = dual_objective(alpha_new, Q)
+        step_norm = np.linalg.norm(alpha_new - alpha)
+        eq_violation = abs(y @ alpha_new)
+        box_violation = max(np.max(-alpha_new), np.max(alpha_new - C))
+
+        history["objective"].append(obj)
+        history["step_norm"].append(step_norm)
+        history["feas_eq"].append(eq_violation)
+        history["feas_box"].append(max(0.0, box_violation))
+
+        # Stopping criterion
+        if step_norm < tol:
+            alpha = alpha_new
+            break
+
+        alpha = alpha_new
+
+    return alpha, history
+
+def estimate_lipschitz_constant(Q):
+    return np.linalg.norm(Q, 2)
+
+def recover_primal_variables(X, y, alpha, C, tol=1e-4):
+    w = ((alpha * y)[:, None] * X).sum(axis=0)
+
+    mask_margin = (alpha > tol) & (alpha < C - tol)
+
+    if np.any(mask_margin):
+        b_vals = y[mask_margin] - X[mask_margin] @ w
+        b = np.mean(b_vals)
+    else:
+        mask_sv = alpha > tol
+        if np.any(mask_sv):
+            b_vals = y[mask_sv] - X[mask_sv] @ w
+            b = np.mean(b_vals)
+        else:
+            b = 0.0
+
+    return w, b
+
 def plot_classifier(X, y, alpha, w, b, C, tol=1e-6):
     pos = y == 1
     neg = y == -1
